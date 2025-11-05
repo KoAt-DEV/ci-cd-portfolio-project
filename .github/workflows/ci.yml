@@ -1,0 +1,132 @@
+name: CI pipeline
+
+on:
+    push:
+        branches: [ 'main' ]
+    workflow_dispatch:
+
+       
+jobs:
+    lint:
+        name: Lint & Style
+        runs-on: ubuntu-latest
+
+        steps:
+            - &checkout
+              name: Checkout code
+              uses: actions/checkout@v4
+
+            - &setup_python_latest
+              name: Setup Python
+              uses: actions/setup-python@v4
+              with:
+               python-version: '3.12'
+
+            - name: Install Lint deps
+              run: |
+                pip install black ruff flake8 bandit
+
+            - name: Run black check
+              run: |
+                black --check app
+
+            - name: Run ruff check
+              run: |
+                ruff check app
+
+            - name: Run flake8 check
+              run: |
+                flake8 app --max-line-length=120 --ignore=E501
+
+            - name: Run bandit check
+              run: |
+                bandit -r app
+
+
+
+    typecheck:
+        name: Typecheck Mypy
+        runs-on: ubuntu-latest
+
+        steps:
+            - *checkout
+
+            - *setup_python_latest
+
+            - name: Install Mypy
+              run: |
+                pip install mypy fastapi "sqlalchemy>=2.0"
+
+            - name: Run Typecheck
+              run: |
+                mypy app --config pyproject.toml
+
+    tests:
+        name: Functional tests
+        runs-on: ubuntu-latest
+
+        strategy:
+            matrix:
+                python-version: [ '3.10', '3.11', '3.12' ]
+
+        services:
+            postgres:
+                image: postgres:16
+
+                env:
+                    POSTGRES_USER: testuser
+                    POSTGRES_PASSWORD: testpass
+                    POSTGRES_DB: testdb
+                
+                ports:
+                    - 5432:5432
+
+                options: >-
+                    --health-cmd "pg_isready -U testuser -d testdb"
+                    --health-interval 10s
+                    --health-timeout 5s
+                    --health-retries 5
+
+        env:
+            DB_URL: ${{ secrets.DB_URL }}
+            TEST_DB_URL: postgresql+asyncpg://testuser:testpass@localhost:5432/testdb
+            SYNC_TEST_DB_URL: postgresql+psycopg://testuser:testpass@localhost:5432/testdb # Sync db url for alembic migration
+            ALGORITHM: ${{ secrets.ALGORITHM }}
+            SECRET_KEY: ${{ secrets.SECRET_KEY }}
+
+        steps:
+            - *checkout
+
+            - name: Setup Python
+              uses: actions/setup-python@v4
+              with:
+                python-version: ${{ matrix.python-version }}
+
+            - name: Cache pip
+              uses: actions/cache@v4
+              with:
+                path: ~/.cache/pip
+                key: ${{ runner.os }}-pip-${{ matrix.python-version }}-${{ hashFiles('requirements.txt') }}
+                restore-keys: |
+                    ${{ runner.os }}-pip-${{ matrix.python-version }}
+
+            - name: Install dependencies for tests
+              run: |
+                 python -m pip install --upgrade pip
+                 pip install -r requirements.txt
+
+            - name: Run Alembic migrations on test DB
+              env:
+                DB_URL: ${{ env.TEST_DB_URL }}  
+              run: |
+                alembic upgrade head
+
+            - name: Run tests
+              run: |
+                pytest --cov=app --cov-report=html  
+
+            - name: Upload coverage report
+              uses: actions/upload-artifact@v4
+              with: 
+                name: html-coverage ${{ matrix.python-version }}
+                path: htmlcov

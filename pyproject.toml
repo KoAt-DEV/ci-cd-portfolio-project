@@ -1,0 +1,30 @@
+[project]
+name = "CI_CD_Project"
+version = "0.1.0"
+description = "Demo project with CI/CD"
+requires-python = ">=3.10"
+
+[tool.black]
+line-length = 88
+target-version = ['py310']
+skip-string-normalization = false
+
+[tool.ruff]
+# F401 = imported but unused (pl. Alembic)
+# E501 = line too long 
+lint.ignore = ["F401", "E501"]
+
+[tool.flake8]
+max-line-length = 120
+ignore = ["F401", "E501"]
+
+
+src = ["app", "alembic"]
+
+
+fix = true
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
+strict = false
